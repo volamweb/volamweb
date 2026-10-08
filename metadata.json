@@ -1,0 +1,6 @@
+{
+  "name": "Võ Lâm Truyền Kỳ Web - Bản Offline",
+  "description": "Game nhập vai kiếm hiệp Võ Lâm Web chơi đơn offline: Thập Đại Môn Phái, Ngũ Hành tương khắc, săn Boss Hoàng Kim, cày cấp và trang bị.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
