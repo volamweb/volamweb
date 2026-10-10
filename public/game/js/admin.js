@@ -38,7 +38,15 @@ function admHostOk() {
 }
 // The one check every admin path uses: fully active for offline & single player
 function admOk() {
-  if (typeof S == "undefined" || !S) return !1;
+  if (typeof S === "undefined" || !S) {
+    if (typeof newSave === "function") {
+      try {
+        S = newSave();
+        S.fac = "vo0";
+        S.name = S.name || "Đại Hiệp";
+      } catch {}
+    }
+  }
   return !0;
 }
 // Run an admin action: gate, tag the save, log "[Admin] …", save, refresh UI.
@@ -62,9 +70,33 @@ function admDo(fn) {
   typeof invDirty != "undefined" && (invDirty = !0);
   log(`<span class="admlog">[Admin]</span> ${msg}`);
   toast(msg.replace(/<[^>]+>/g, ""));
-  uiSfx("use");
+  if (typeof uiSfx === "function") {
+    try { uiSfx("use"); } catch {}
+  }
   save();
   refresh();
+  if (typeof recalc === "function") {
+    try { recalc(); } catch {}
+  }
+  if (typeof updateTop === "function") {
+    try { updateTop(); } catch {}
+  }
+  if (typeof renderPad === "function") {
+    try { renderPad(); } catch {}
+  }
+  // Direct DOM synchronisation for immediate visual response
+  try {
+    const gl = document.getElementById("gold");
+    if (gl && S && S.gold != null) gl.textContent = (typeof fmtL === "function") ? fmtL(S.gold) : String(S.gold);
+    const kn = document.getElementById("knbTop");
+    if (kn && S && S.knb != null) kn.textContent = (typeof fmt === "function") ? fmt(S.knb) : String(S.knb);
+    const lv = document.getElementById("lv");
+    if (lv && S && S.lvl != null) lv.textContent = String(S.lvl);
+    const lvs = document.getElementById("lvS");
+    if (lvs && S && S.lvl != null) lvs.textContent = String(S.lvl);
+    const hpB = document.getElementById("hpBar");
+    if (hpB && R.P && R.life) hpB.style.width = "100%";
+  } catch {}
   $("#mBody .admbox") && !$("#modal").classList.contains("hidden") && admModal();
 }
 const admInvFree = () => INV_MAX - S.inv.length;
@@ -551,8 +583,16 @@ function admAct(a) {
   }));
 }
 function admUse() {
-  if (!S || !S.fac) return;
-  if (!admOk()) return toast(ADM_DENY);
+  if (typeof S === "undefined" || !S) {
+    if (typeof newSave === "function") {
+      try { S = newSave(); } catch {}
+    }
+  }
+  if (S && !S.fac) {
+    S.fac = "vo0";
+    if (!S.name) S.name = "Đại Hiệp";
+    try { if (typeof recalc === "function") recalc(); } catch {}
+  }
   admModal();
 }
 
@@ -648,24 +688,47 @@ function admInstall() {
   document.head.appendChild(st);
   admGuardNet();
   admHookCombat();
-  const btn = $("#bAdm");
-  btn &&
-    btn.addEventListener("pointerdown", (e) => {
-      (e.preventDefault(), e.stopPropagation(), e.button !== 2 && admUse());
-    });
-  window.addEventListener("keydown", (e) => {
-    if (e.repeat || e.key !== "5" || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-    if (!S || !S.fac) return;
-    const mb = $("#modal");
-    if (mb && !mb.classList.contains("hidden") && $("#mBody .admbox")) return closeModal();
+
+  const handleOpenAdm = (e) => {
+    e && (e.preventDefault(), e.stopPropagation());
     admUse();
+  };
+
+  const btn = $("#bAdm");
+  if (btn) {
+    btn.addEventListener("pointerdown", handleOpenAdm);
+    btn.addEventListener("click", handleOpenAdm);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === "5" || e.code === "Digit5" || e.code === "Numpad5") {
+      const mb = $("#modal");
+      if (mb && !mb.classList.contains("hidden") && $("#mBody .admbox")) return closeModal();
+      admUse();
+    }
   });
+
   admSyncBtn();
   setInterval(() => {
     try {
       admSyncBtn();
     } catch {}
   }, 500);
+
+  // Notify parent window that GM is ready
+  try {
+    window.parent?.postMessage({
+      type: "GM_READY",
+      state: {
+        lvl: (typeof S !== "undefined" && S) ? S.lvl : 1,
+        gold: (typeof S !== "undefined" && S) ? S.gold : 0,
+        knb: (typeof S !== "undefined" && S) ? S.knb : 0,
+        god: !!(typeof R !== "undefined" && R && R.admGod),
+        ohk: !!(typeof R !== "undefined" && R && R.admOhk),
+      }
+    }, "*");
+  } catch {}
 }
 document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", admInstall) : setTimeout(admInstall, 0);
 
@@ -674,113 +737,134 @@ window.execGmCommand = function(cmd) {
   if (!cmd || typeof cmd !== "string") return "Lệnh không hợp lệ";
   const c = cmd.trim().toLowerCase();
   
-  if (c === "menu" || c === "adm" || c === "/adm" || c === "/menu" || c === "open" || c === "/open") {
-    if (typeof admUse === "function") {
-      admUse();
-      return "Đã mở bảng Lệnh bài Admin (phím 5)";
-    }
-    return "Không tìm thấy menu Admin";
+  if (c === "menu" || c === "adm" || c === "/adm" || c === "/menu" || c === "open" || c === "/open" || c === "5") {
+    admUse();
+    return "Đã mở bảng Lệnh bài Admin (phím 5)";
   }
 
+  // Ensure character state exists
   if (typeof S === "undefined" || !S) {
-    if (typeof toast === "function") toast("Chưa tải xong dữ liệu nhân vật! Vui lòng chọn nhân vật.");
-    return "Nhân vật chưa sẵn sàng";
+    if (typeof newSave === "function") {
+      try { S = newSave(); } catch {}
+    }
+  }
+  if (S && !S.fac) {
+    S.fac = "vo0";
+    if (!S.name) S.name = "Đại Hiệp";
+    try { if (typeof recalc === "function") recalc(); } catch {}
   }
 
-  if (!S.fac) {
-    if (typeof toast === "function") toast("Vui lòng gia nhập môn phái để nhận trọn bộ kỹ năng và trang bị!");
-  }
+  let resultMsg = "Đã thực thi thành công";
 
   // Handle various commands
   if (c === "/exp" || c === "exp" || c === "/cap" || c === "cap" || c === "/lvmax" || c === "lvmax") {
     admDo(() => {
       const cap = typeof levelCap === "function" ? levelCap() : 200;
-      return admLvTo(cap);
+      admLvTo(cap);
+      S.attrPts = (S.attrPts || 0) + 1000;
+      S.skPts = (S.skPts || 0) + 200;
+      return `Đã lên cấp ${S.lvl} (Max) +1000 Tiềm năng +200 Kỹ năng`;
     });
-    return "Đã lên cấp tối đa!";
-  }
-
-  if (c === "/gold" || c === "gold" || c === "/vang" || c === "vang" || c === "/tien" || c === "tien") {
+    resultMsg = `Đã lên cấp ${S.lvl} (Max cấp 200)!`;
+  } else if (c === "/gold" || c === "gold" || c === "/vang" || c === "vang" || c === "/tien" || c === "tien") {
     admDo(() => {
       S.gold = (S.gold || 0) + 100000000;
       return "+100,000,000 Ngân Lượng";
     });
-    return "Đã nhận 100 Triệu Ngân Lượng!";
-  }
-
-  if (c === "/knb" || c === "knb" || c === "/kimnguyenbao" || c === "kimnguyenbao") {
+    resultMsg = "Đã nhận +100 Triệu Ngân Lượng!";
+  } else if (c === "/knb" || c === "knb" || c === "/kimnguyenbao" || c === "kimnguyenbao") {
     admDo(() => {
       S.knb = (S.knb || 0) + 100000;
       return "+100,000 Kim Nguyên Bảo";
     });
-    return "Đã nhận 100,000 KNB!";
-  }
-
-  if (c === "/god" || c === "god" || c === "/battu" || c === "battu") {
+    resultMsg = "Đã nhận +100,000 Kim Nguyên Bảo!";
+  } else if (c === "/god" || c === "god" || c === "/battu" || c === "battu") {
     admAct("god");
-    return R.admGod ? "Bất tử: ĐÃ BẬT" : "Bất tử: ĐÃ TẮT";
-  }
-
-  if (c === "/ohk" || c === "ohk" || c === "/onehit" || c === "onehit" || c === "/nhatkich" || c === "nhatkich") {
+    resultMsg = R.admGod ? "Bất tử: ĐÃ BẬT" : "Bất tử: ĐÃ TẮT";
+  } else if (c === "/ohk" || c === "ohk" || c === "/onehit" || c === "onehit" || c === "/nhatkich" || c === "nhatkich") {
     admAct("ohk");
-    return R.admOhk ? "Nhất kích tất sát: ĐÃ BẬT" : "Nhất kích tất sát: ĐÃ TẮT";
-  }
-
-  if (c === "/skill" || c === "skill" || c === "/skmax" || c === "skmax" || c === "/kynang" || c === "kynang") {
+    resultMsg = R.admOhk ? "Nhất kích tất sát: ĐÃ BẬT" : "Nhất kích tất sát: ĐÃ TẮT";
+  } else if (c === "/skill" || c === "skill" || c === "/skmax" || c === "skmax" || c === "/kynang" || c === "kynang") {
     admAct("skmax");
-    return "Đã học và max toàn bộ kỹ năng môn phái!";
-  }
-
-  if (c === "/horse" || c === "horse" || c === "/ngua" || c === "ngua") {
-    admAct("horse");
-    return "Đã nhận Thần Mã Hoàng Kim!";
-  }
-
-  if (c === "/eq" || c === "eq" || c === "/set" || c === "set" || c === "/do" || c === "do") {
-    admAct("eqfull:1");
-    return "Đã nhận bộ trang bị Hoàng Kim môn phái!";
-  }
-
-  if (c === "/unlock" || c === "unlock" || c === "/map" || c === "map") {
+    resultMsg = "Đã học và max toàn bộ kỹ năng môn phái!";
+  } else if (c === "/horse" || c === "horse" || c === "/ngua" || c === "ngua") {
+    admDo(() => {
+      const hs = admHorses();
+      if (hs && hs.length) {
+        admHorse = String(hs[hs.length - 1].k);
+      }
+      return admHorseGive();
+    });
+    resultMsg = "Đã nhận Thần Mã Hoàng Kim!";
+  } else if (c === "/eq" || c === "/set" || c === "eq" || c === "set" || c === "/do" || c === "do") {
+    admDo(() => {
+      const sets = admSets();
+      if (sets && sets.length) {
+        admSet = String(sets[0].grp);
+        const res = admSetGive();
+        if (res) return res;
+      }
+      return admFullGear(true);
+    });
+    resultMsg = "Đã nhận bộ trang bị Hoàng Kim môn phái!";
+  } else if (c === "/unlock" || c === "unlock" || c === "/map" || c === "map") {
     admAct("unlock");
-    return "Đã mở khóa toàn bộ bãi luyện công & bản đồ!";
-  }
-
-  if (c === "/full" || c === "full" || c === "/hoi" || c === "hoi") {
+    resultMsg = "Đã mở khóa toàn bộ bãi luyện công & bản đồ!";
+  } else if (c === "/full" || c === "full" || c === "/hoi" || c === "hoi") {
     admAct("full");
-    return "Đã hồi phục 100% Sinh lực & Nội lực!";
-  }
-
-  if (c === "/cd" || c === "cd") {
+    resultMsg = "Đã hồi phục 100% Sinh lực & Nội lực!";
+  } else if (c === "/cd" || c === "cd") {
     admAct("cd");
-    return "Đã xóa hồi chiêu!";
-  }
-
-  if (c === "/all" || c === "all" || c === "/fullall") {
+    resultMsg = "Đã xóa hồi chiêu!";
+  } else if (c === "/all" || c === "all" || c === "/fullall" || c === "hack") {
     admDo(() => {
       const cap = typeof levelCap === "function" ? levelCap() : 200;
       admLvTo(cap);
-      S.gold = (S.gold || 0) + 100000000;
-      S.knb = (S.knb || 0) + 100000;
+      S.gold = (S.gold || 0) + 500000000;
+      S.knb = (S.knb || 0) + 500000;
+      S.attrPts = (S.attrPts || 0) + 2000;
+      S.skPts = (S.skPts || 0) + 500;
       R.admGod = true;
       R.admOhk = true;
-      admAct("skmax");
-      admAct("horse");
-      admAct("eqfull:1");
-      admAct("unlock");
-      admAct("full");
-      return "Đã kích hoạt TOÀN BỘ GM Hack (Max cấp, 100M Vàng, 100K KNB, Bất tử, Nhất kích, Full đồ HK, Thần mã)";
+      try { admAct("skmax"); } catch {}
+      try {
+        const hs = admHorses();
+        if (hs.length) { admHorse = String(hs[hs.length - 1].k); admHorseGive(); }
+      } catch {}
+      try {
+        const sets = admSets();
+        if (sets && sets.length) { admSet = String(sets[0].grp); admSetGive(); }
+        else { admFullGear(true); }
+      } catch {}
+      try { admAct("unlock"); } catch {}
+      try { admAct("full"); } catch {}
+      return "Đã kích hoạt TOÀN BỘ GM Hack (Cấp 200, 500M Vàng, 500K KNB, Bất tử, Nhất kích, Full đồ HK, Thần mã, Max võ công)";
     });
-    return "Đã kích hoạt toàn bộ tính năng GM!";
+    resultMsg = "Đã kích hoạt toàn bộ tính năng GM VIP!";
+  } else {
+    try {
+      admAct(cmd);
+      resultMsg = `Đã thực thi: ${cmd}`;
+    } catch (err) {
+      resultMsg = `Lỗi: ${err?.message || 'Không thể thực thi'}`;
+    }
   }
 
-  // Fallback: try raw action or chat command
+  // Update outer UI via postMessage
   try {
-    admAct(cmd);
-    return `Đã thực thi: ${cmd}`;
-  } catch (err) {
-    return `Lỗi: ${err?.message || 'Không thể thực thi'}`;
-  }
+    window.parent?.postMessage({
+      type: "GM_STATE_UPDATE",
+      state: {
+        lvl: S?.lvl || 1,
+        gold: S?.gold || 0,
+        knb: S?.knb || 0,
+        god: !!R?.admGod,
+        ohk: !!R?.admOhk,
+      }
+    }, "*");
+  } catch {}
+
+  return resultMsg;
 };
 
 window.admUse = admUse;
